@@ -264,24 +264,57 @@ fn fs(in : VOut) -> @location(0) vec4f {
 
 export class Renderer {
 
+    // Rejects with a readable reason at every point WebGPU can be missing
+    // or broken, so the caller can fall back to a map-less planner
     static async create( canvas ) {
         if ( !navigator.gpu ) throw new Error( 'This browser does not support WebGPU.' );
-        var adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
-        if ( !adapter ) throw new Error( 'No suitable GPU adapter was found.' );
-        var device = await adapter.requestDevice();
-        return new Renderer( canvas, device );
+        var adapter = null;
+        try {
+            adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
+        } catch ( err ) {
+            throw new Error( 'WebGPU is available but no GPU adapter could be opened (' + err.message + ').' );
+        }
+        // null when the GPU is blocklisted or hardware acceleration is off
+        if ( !adapter ) throw new Error( 'WebGPU is available but no suitable GPU adapter was found (it may be disabled or blocklisted).' );
+        var device;
+        try {
+            device = await adapter.requestDevice();
+        } catch ( err ) {
+            throw new Error( 'The GPU device could not be created (' + err.message + ').' );
+        }
+        // validation errors in setup are otherwise only reported
+        // asynchronously, leaving a silently blank map
+        device.pushErrorScope( 'validation' );
+        var r;
+        try {
+            r = new Renderer( canvas, device );
+        } catch ( err ) {
+            await device.popErrorScope().catch( () => null );
+            device.destroy();
+            throw err;
+        }
+        var setupError = await device.popErrorScope();
+        if ( setupError ) {
+            device.destroy();
+            throw new Error( 'WebGPU setup failed: ' + setupError.message );
+        }
+        return r;
     }
 
     constructor( canvas, device ) {
         this.canvas = canvas;
         this.device = device;
         this.context = canvas.getContext( 'webgpu' );
+        if ( !this.context ) throw new Error( 'The canvas could not create a WebGPU context.' );
         this.format = navigator.gpu.getPreferredCanvasFormat();
         this.context.configure( { device: device, format: this.format, alphaMode: 'opaque' } );
         this.lost = false;
+        // set by the caller to switch to the map-less fallback
+        this.onLost = null;
         device.lost.then( ( info ) => {
             this.lost = true;
             console.error( 'WebGPU device lost:', info.message );
+            if ( this.onLost ) this.onLost( info );
         } );
 
         this.frameData = new Float32Array( 40 );

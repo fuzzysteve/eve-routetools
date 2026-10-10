@@ -82,7 +82,13 @@ button:hover { background: rgba(108, 196, 255, 0.25); }
     color: var(--muted);
     text-align: center;
     display: none;
+    z-index: 1;
 }
+#gpu-msg b { color: var(--text); font-weight: 600; }
+#gpu-msg p { margin: 8px 0 0; }
+/* no WebGPU: drop the map and everything drawn over it, keep the planner */
+body.no-gpu #gpu, body.no-gpu #labels, body.no-gpu #tooltip, body.no-gpu .map-only { display: none; }
+body.no-gpu #gpu-msg { display: block; }
 
 .panel {
     position: fixed;
@@ -178,6 +184,8 @@ td.cyno b { color: var(--accent); font-weight: 600; }
     .panel { position: static; margin: 8px; width: auto; max-height: none; }
     #controls { width: auto; }
     #results { max-height: none; }
+    body.no-gpu #viewport { display: none; }
+    body.no-gpu #gpu-msg { position: static; transform: none; max-width: none; margin: 8px; }
 }
 </style>
 </head>
@@ -223,18 +231,18 @@ td.cyno b { color: var(--accent); font-weight: 600; }
         </div>
         <div id="chips"></div>
     </div>
-    <div class="toggles">
+    <div class="toggles map-only">
         <label><input type="checkbox" id="all-spheres" checked>Show range sphere for every jump</label>
         <label><input type="checkbox" id="reach" checked>Highlight cyno options in selected range</label>
     </div>
     <div class="buttons">
         <button id="swap" type="button">Swap</button>
-        <button id="fit" type="button">Fit view</button>
+        <button id="fit" type="button" class="map-only">Fit view</button>
         <button id="copy" type="button">Copy link</button>
     </div>
     <div id="msg"></div>
     <div class="help">
-        Drag to rotate, right-drag to pan, wheel to zoom. Click a star to set the origin, shift-click to set the destination.
+        <span class="map-only">Drag to rotate, right-drag to pan, wheel to zoom. Click a star to set the origin, shift-click to set the destination.</span>
         Routes take the fewest jumps, then the shortest total distance. Highsec, Pochven, Zarzakh and Jove space are never landing points.
     </div>
 </div>

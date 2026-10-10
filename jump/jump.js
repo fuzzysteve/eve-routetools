@@ -340,22 +340,43 @@ function updateLabels() {
 }
 
 function loop( now ) {
+    if ( !renderer ) return;
     stepAnim( now );
     var canvas = $( 'gpu' );
     var w = canvas.clientWidth, h = canvas.clientHeight;
-    if ( w !== view.w || h !== view.h ) {
-        view.w = w;
-        view.h = h;
-        if ( renderer ) renderer.resize( w * dpr, h * dpr );
-        dirty = true;
-    }
-    if ( dirty ) {
-        dirty = false;
-        computeView();
-        if ( renderer ) writeFrame( now );
-        updateLabels();
+    try {
+        if ( w !== view.w || h !== view.h ) {
+            view.w = w;
+            view.h = h;
+            renderer.resize( w * dpr, h * dpr );
+            dirty = true;
+        }
+        if ( dirty ) {
+            dirty = false;
+            computeView();
+            writeFrame( now );
+            updateLabels();
+        }
+    } catch ( err ) {
+        // an exception here would otherwise end the loop with a frozen map
+        console.error( err );
+        disableMap( 'The 3D map stopped working (' + err.message + ').' );
+        return;
     }
     requestAnimationFrame( loop );
+}
+
+// Without WebGPU the planner, table and URL all still work: hide the map,
+// its labels and tooltip, and say why. Safe to call more than once.
+function disableMap( reason ) {
+    renderer = null;
+    anim = null;
+    document.body.classList.add( 'no-gpu' );
+    showTooltip( -1 );
+    var msg = $( 'gpu-msg' );
+    msg.innerHTML = '<b>3D map unavailable</b><p>' + esc( reason ) + '</p>' +
+        '<p>Route planning, the jump table and shareable links still work. ' +
+        'The map needs a browser with WebGPU enabled, such as a current Chrome, Edge, Safari or Firefox.</p>';
 }
 
 // ---------------------------------------------------------------- picking
@@ -799,20 +820,26 @@ async function main() {
     try {
         renderer = await Renderer.create( $( 'gpu' ) );
         renderer.device.addEventListener( 'uncapturederror', ( ev ) => console.error( 'WebGPU error:', ev.error.message ) );
+        renderer.onLost = ( info ) => disableMap( 'The GPU device was lost' + ( info.message ? ' (' + info.message.replace( /\.$/, '' ) + ')' : '' ) + '. Reload the page to try again.' );
     } catch ( err ) {
-        var msg = $( 'gpu-msg' );
-        msg.textContent = err.message + ' The planner and jump table still work; the 3D map needs a WebGPU browser.';
-        msg.style.display = 'block';
+        console.warn( 'WebGPU unavailable:', err );
+        disableMap( err.message );
     }
 
     var canvas = $( 'gpu' );
     view.w = canvas.clientWidth;
     view.h = canvas.clientHeight;
-    if ( renderer ) renderer.resize( view.w * dpr, view.h * dpr );
+    if ( renderer ) {
+        try {
+            renderer.resize( view.w * dpr, view.h * dpr );
+        } catch ( err ) {
+            disableMap( 'The 3D map could not be sized (' + err.message + ').' );
+        }
+    }
     fitTo( allSystems(), 0, false );
     update( false );
     if ( state.route ) fitTo( state.route.path, state.route.rangeLy, false );
-    requestAnimationFrame( loop );
+    if ( renderer ) requestAnimationFrame( loop );
 }
 
 main().catch( ( err ) => {
