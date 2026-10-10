@@ -58,6 +58,9 @@ $(document).ready(function() {
 <h1><a href="jump/jump.php">Jump Planner</a></h1>
 <p>Jump drive routes for capitals, black ops and jump freighters, with range spheres, cyno locations, fuel and fatigue.</p>
 <hr>
+<h1><a href="planets/">Planet Finder</a></h1>
+<p>Find the nearest systems with the planet types you need for planetary interaction, and list every planet in a system.</p>
+<hr>
 <h1>Route to Region.</h1>
 <form action="region.php" method="get">
 <label for=origin>Starting System</label><input type=text name="origin" value='<?php echo $system; ?>' id=origin>
