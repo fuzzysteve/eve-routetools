@@ -78,16 +78,23 @@ if ($_GET['type']=="high")
 ?>
 <html>
 <head><title>Route planner - Regional</title>
-<script src="//ajax.googleapis.com/ajax/libs/jquery/1.5/jquery.min.js"></script>
-<?php include('/home/web/fuzzwork/htdocs/menu/menuhead.php'); ?>
+
+  <link href="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/themes/base/jquery-ui.css" rel="stylesheet" type="text/css"/>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+  <script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/jquery-ui.min.js"></script>
+
+<?php include('/home/web/fuzzwork/htdocs/bootstrap/header.php'); ?>
 </head>
 <body>
-<?php include('/home/web/fuzzwork/htdocs/menu/menu.php'); ?>
+<?php include('/home/web/fuzzwork/htdocs/menu/menubootstrap.php'); ?>
+<div class="container">
+
+
 
 <p>If a route is possible, it will be displayed below.</p> 
 <table>
 <tr><th>System</th></tr>
-<?
+<?php
  $routesql="select solarSystemName,solarSystemID from mapSolarSystems where solarsystemid=?";
         $routestmt = $dbh->prepare($routesql);
 
@@ -102,7 +109,10 @@ foreach($routeplan as $system)
 
  
 ?>
-<tr><th>Route Length: <? echo $maxjump-1; ?></th><tr>
+<tr><th>Route Length: <?php echo $maxjump-1; ?></th><tr>
 </table>
+</div>
+<?php include('/home/web/fuzzwork/htdocs/bootstrap/footer.php'); ?>
+
 </body>
 </html>

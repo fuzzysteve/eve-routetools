@@ -1,7 +1,7 @@
 <?php
 require_once('db.inc.php');
 
-$corpids=$_POST['corpid'];
+$corpids=isset($_POST['corpid'])?$_POST['corpid']:array();
 $corpidlist=array();
 
 foreach ($corpids as $corpid)
@@ -68,10 +68,12 @@ $routetable="routesmall";
 <html>
 <head>
 <title>Agent Finder</title>
-  <link href="//ajax.googleapis.com/ajax/libs/jqueryui/1.8/themes/base/jquery-ui.css" rel="stylesheet" type="text/css"/>
+  <link href="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.1/themes/base/jquery-ui.css" rel="stylesheet" type="text/css"/>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+  <script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/jquery-ui.min.js"></script>
+
+
   <link href="//ajax.aspnetcdn.com/ajax/jquery.dataTables/1.9.4/css/jquery.dataTables.css" rel="stylesheet" type="text/css"/>
-  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.5/jquery.min.js"></script>
-  <script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.8/jquery-ui.min.js"></script>
   <script type="text/javascript" src="//ajax.aspnetcdn.com/ajax/jquery.dataTables/1.9.4/jquery.dataTables.min.js"></script>
 <script>
 $(document).ready(function()
@@ -81,19 +83,26 @@ $(document).ready(function()
 );
 </script>
 <link href="/lpstore/style.css" rel="stylesheet" type="text/css"/>
-<?php include('/home/web/fuzzwork/htdocs/menu/menuhead.php'); ?>
+
+<?php include('/home/web/fuzzwork/htdocs/bootstrap/header.php'); ?>
 </head>
 <body>
-<?php include('/home/web/fuzzwork/htdocs/menu/menu.php'); ?>
+<?php include('/home/web/fuzzwork/htdocs/menu/menubootstrap.php'); ?>
+<div class="container">
+
 
 <table border=1 id="stations" class="tablesorter">
 <thead>
 <tr><th>Agent Name</th><th>Agent Level</th><th>Division</th><th>locator</th><th>Station Name</th><th>System</th><th>Security Level</th><th>Route Length</th><th>Corporation</th></tr>
 </thead>
 <tbody>
-<?
-$corporations=join(",",$corpidlist);
-$sql="select agentname.itemname agentname,agentid,stationname,solarsystemname,level,round(mapSolarSystems.security,1) security,greatest(length,0) length,invNames.itemname,divisionname,islocator  from agtAgents join staStations on (agtAgents.locationid=staStations.stationid) join evesupport.$routetable on (end=solarsystemid) join invNames on (itemid=agtAgents.corporationid) join mapSolarSystems on (mapSolarSystems.solarsystemid=staStations.solarsystemid) join invNames agentname on (agtAgents.agentid=agentname.itemid) join crpNPCDivisions on (crpNPCDivisions.divisionID=agtAgents.divisionID) where agtAgents.corporationid in ($corporations) and start=:start";
+<?php
+$corpfilter="";
+if (count($corpidlist))
+{
+$corpfilter="agtAgents.corporationid in (".join(",",$corpidlist).") and";
+}
+$sql="select agentname.itemname agentname,agentid,stationname,solarsystemname,level,round(mapSolarSystems.security,1) security,greatest(length,0) length,invNames.itemname,divisionname,islocator  from eve.agtAgents join eve.staStations on (agtAgents.locationid=staStations.stationid) join evesupport.$routetable on (end=solarsystemid) join eve.invNames on (itemid=agtAgents.corporationid) join eve.mapSolarSystems on (mapSolarSystems.solarsystemid=staStations.solarsystemid) join eve.invNames agentname on (agtAgents.agentid=agentname.itemid) join eve.crpNPCDivisions on (crpNPCDivisions.divisionID=agtAgents.divisionID) where $corpfilter start=:start";
 
 $sql.=$where;
 $sql.=" order by length asc limit $limit";
@@ -115,9 +124,10 @@ $locator="Yes";
 </tbody>
 </table>
 <br>
-<?php include('/home/web/fuzzwork/analytics.php'); ?>
+</div>
+<?php include('/home/web/fuzzwork/htdocs/bootstrap/footer.php'); ?>
 
-<!-- Generated <? echo date(DATE_RFC822);?> -->
+<!-- Generated <?php echo date(DATE_RFC822);?> -->
 </body>
 </html>
 

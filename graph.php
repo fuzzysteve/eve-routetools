@@ -1,4 +1,4 @@
-<? 
+<?php
                function graph_find_path( &$G, $A, $B, $M = 50000 )
                 {
                   // $P will hold the result path at the end.
