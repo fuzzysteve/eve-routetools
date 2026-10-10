@@ -92,6 +92,9 @@ page_head($system->solarSystemName.' planets');
 <p><a href="index.php<?php echo $backquery ? '?'.$backquery : ''; ?>">&larr; Planet Finder</a></p>
 <h1><?php echo h($system->solarSystemName); ?> <small class="<?php echo sec_class($system->security); ?>"><?php echo sec_display($system->security); ?></small></h1>
 <p><?php echo h($system->constellationName); ?> &middot; <?php echo h($system->regionName); ?><?php echo $system->star ? ' &middot; '.h($system->star) : ''; ?></p>
+<?php if (in_array($systemid, $pi_restricted_systems)) { ?>
+<div class="alert alert-warning">Planetary interaction isn't allowed in <?php echo h($system->solarSystemName); ?>. Its planets can't be colonised.</div>
+<?php } ?>
 <p><strong><?php echo count($planets); ?> planet<?php echo count($planets) == 1 ? '' : 's'; ?></strong><?php
 foreach ($summary as $name => $c) {
     echo ' &middot; '.$c.' '.h($name);

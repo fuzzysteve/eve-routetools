@@ -49,6 +49,7 @@ foreach ($dbh->query('select solarSystemName from mapSolarSystems order by solar
 
 $error = '';
 $results = array();
+$excluded = array();
 $originid = null;
 if ($searched) {
     $stmt = $dbh->prepare('select solarSystemID, solarSystemName from mapSolarSystems where solarSystemName=?');
@@ -85,6 +86,7 @@ if ($searched) {
         }
 
         // mapRoutes stores the origin itself as pathLength 1.
+        $restricted = implode(',', $pi_restricted_systems);
         $sql = "select ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName,
                        mr.pathLength-1 jumps, count(*) planets, ".implode(', ', $counts).",
                        (select count(*) from staStations s where s.solarSystemID=ms.solarSystemID) stations
@@ -93,16 +95,22 @@ if ($searched) {
                 join mapRegions r on (r.regionID=ms.regionID)
                 join mapDenormalize d on (d.solarSystemID=ms.solarSystemID and d.groupID=7)
                 where mr.fromSolarSystemID=:origin and mr.highSecOnly=:high and mr.pathLength<=:maxpath $where
+                and ms.solarSystemID %s ($restricted)
                 group by ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName, mr.pathLength
                 ".($having ? 'having '.implode(' and ', $having) : '')."
                 order by jumps, ms.solarSystemName
-                limit $limit";
-        $stmt = $dbh->prepare($sql);
-        $stmt->bindValue(':origin', $originid, PDO::PARAM_INT);
-        $stmt->bindValue(':high', $highroute, PDO::PARAM_INT);
-        $stmt->bindValue(':maxpath', $maxjumps + 1, PDO::PARAM_INT);
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_OBJ);
+                %s";
+        $run = function($sql) use ($dbh, $originid, $highroute, $maxjumps) {
+            $stmt = $dbh->prepare($sql);
+            $stmt->bindValue(':origin', $originid, PDO::PARAM_INT);
+            $stmt->bindValue(':high', $highroute, PDO::PARAM_INT);
+            $stmt->bindValue(':maxpath', $maxjumps + 1, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_OBJ);
+        };
+        $results = $run(sprintf($sql, 'not in', "limit $limit"));
+        // Restricted systems that would otherwise have matched, so we can say what was left out.
+        $excluded = $run(sprintf($sql, 'in', ''));
 
         if (!$results) {
             $check = $dbh->prepare('select 1 from evesupport.mapRoutes where fromSolarSystemID=? and highSecOnly=? limit 1');
@@ -202,6 +210,14 @@ page_head('Planet Finder');
 ?></li>
 <?php } ?>
 </ul>
+<?php } ?>
+<?php if ($excluded) {
+    $exnames = array();
+    foreach ($excluded as $x) {
+        $exnames[] = h($x->solarSystemName);
+    }
+?>
+<p class="text-muted">Left out <?php echo count($excluded); ?> matching system<?php echo count($excluded) == 1 ? '' : 's'; ?> where planetary interaction isn't allowed: <?php echo implode(', ', $exnames); ?>.</p>
 <?php } ?>
 <?php if ($results) {
     $linkextra = '';

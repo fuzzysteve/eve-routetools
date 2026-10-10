@@ -4,6 +4,31 @@ $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 define('AU_METRES', 149597870700);
 
+// Systems where planets can't be colonised. CCP doesn't export this in the
+// SDE; the list comes from the EVE University wiki
+// (https://wiki.eveuniversity.org/Planetary_Industry), which gives the
+// reason as "high traffic or storyline reasons".
+$pi_restricted_systems = array(
+    30002187, // Amarr
+    30005001, // Arnon
+    30002657, // Aunia
+    30002656, // Auvergne
+    30002528, // Balginia
+    30002659, // Dodixie
+    30002734, // Fricoure
+    30045329, // Ichoriya
+    30002792, // Irjunen
+    30002739, // Isaziwa
+    30001426, // Isinokka
+    30000142, // Jita
+    30002545, // Lustrevik
+    30002819, // Motsu
+    30004969, // Oursulaert
+    30002510, // Rens
+    30002783, // Sankkasen
+    30001409, // Umokka
+);
+
 function h($s)
 {
     return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
@@ -118,6 +143,8 @@ function page_head($title)
 .sec-null { color: #d9534f; font-weight: bold; }
 .checkbox-inline { font-weight: normal; white-space: nowrap; }
 .type-picker .checkbox-inline { margin: 0 14px 0 0; }
+/* Bootstrap 3 only scrolls these below 768px; wide commodity searches need it at any width. */
+.table-responsive { overflow-x: auto; }
 .num { text-align: right; }
 .zero { opacity: 0.35; }
 .wanted { font-weight: bold; }
