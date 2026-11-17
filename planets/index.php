@@ -5,13 +5,7 @@ $ptypes = pi_planet_types($dbh);
 $commodities = pi_commodities($dbh);
 $tiernames = array('Raw materials (P0)', 'Basic commodities (P1)', 'Refined commodities (P2)', 'Specialized commodities (P3)', 'Advanced commodities (P4)');
 
-// Raw material typeID => planet typeIDs it can be extracted from.
-$sources = array();
-foreach ($ptypes as $id => $t) {
-    foreach ($t['materials'] as $mid => $name) {
-        $sources[$mid][] = $id;
-    }
-}
+$sources = pi_sources($ptypes);
 
 $origin = isset($_GET['origin']) ? trim($_GET['origin']) : 'Jita';
 $wanted = array();
@@ -61,66 +55,10 @@ if ($searched) {
         $originid = (int)$row->solarSystemID;
         $origin = $row->solarSystemName;
 
-        $counts = array();
-        foreach ($ptypes as $id => $t) {
-            $counts[] = "sum(d.typeID=$id) t$id";
-        }
-        $having = array();
-        foreach ($wanted as $id) {
-            $having[] = "t$id>0";
-        }
-        // Each raw material needs at least one planet of a type that yields it.
-        foreach ($needs as $mid => $x) {
-            $having[] = '(t'.implode('+t', $sources[$mid]).')>0';
-        }
-        $where = '';
-        if ($secfilter == 'high') {
-            $where .= ' and ms.security>=0.45';
-        } elseif ($secfilter == 'low') {
-            $where .= ' and ms.security>0 and ms.security<0.45';
-        } elseif ($secfilter == 'null') {
-            $where .= ' and ms.security<=0';
-        }
-        if ($station) {
-            $where .= ' and exists (select 1 from staStations s where s.solarSystemID=ms.solarSystemID)';
-        }
-
-        // mapRoutes stores the origin itself as pathLength 1.
-        $restricted = implode(',', $pi_restricted_systems);
-        $sql = "select ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName,
-                       mr.pathLength-1 jumps, count(*) planets, ".implode(', ', $counts).",
-                       (select count(*) from staStations s where s.solarSystemID=ms.solarSystemID) stations
-                from evesupport.mapRoutes mr
-                join mapSolarSystems ms on (ms.solarSystemID=mr.toSolarSystemID)
-                join mapRegions r on (r.regionID=ms.regionID)
-                join mapDenormalize d on (d.solarSystemID=ms.solarSystemID and d.groupID=7)
-                where mr.fromSolarSystemID=:origin and mr.highSecOnly=:high and mr.pathLength<=:maxpath $where
-                and ms.solarSystemID %s ($restricted)
-                group by ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName, mr.pathLength
-                ".($having ? 'having '.implode(' and ', $having) : '')."
-                order by jumps, ms.solarSystemName
-                %s";
-        $run = function($sql) use ($dbh, $originid, $highroute, $maxjumps) {
-            $stmt = $dbh->prepare($sql);
-            $stmt->bindValue(':origin', $originid, PDO::PARAM_INT);
-            $stmt->bindValue(':high', $highroute, PDO::PARAM_INT);
-            $stmt->bindValue(':maxpath', $maxjumps + 1, PDO::PARAM_INT);
-            $stmt->execute();
-            return $stmt->fetchAll(PDO::FETCH_OBJ);
-        };
-        $results = $run(sprintf($sql, 'not in', "limit $limit"));
-        // Restricted systems that would otherwise have matched, so we can say what was left out.
-        $excluded = $run(sprintf($sql, 'in', ''));
-
-        if (!$results) {
-            $check = $dbh->prepare('select 1 from evesupport.mapRoutes where fromSolarSystemID=? and highSecOnly=? limit 1');
-            $check->execute(array($originid, $highroute));
-            if (!$check->fetch()) {
-                $error = $highroute
-                    ? "There's no high-sec-only route data from $origin. It may not be in high-sec; try \"Through any security\"."
-                    : "There's no route data for $origin.";
-            }
-        }
+        $found = pi_find_systems($dbh, $ptypes, $originid, $wanted, $needs, $maxjumps, $highroute, $secfilter, $station, $limit);
+        $results = $found['results'];
+        $excluded = $found['excluded'];
+        $error = $found['error'];
     }
 }
 

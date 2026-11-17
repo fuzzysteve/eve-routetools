@@ -126,6 +126,172 @@ function pi_raw_needs($commodities, $typeid, &$needs = array())
     return $needs;
 }
 
+// Raw material typeID => planet typeIDs it can be extracted from.
+function pi_sources($ptypes)
+{
+    $sources = array();
+    foreach ($ptypes as $id => $t) {
+        foreach ($t['materials'] as $mid => $name) {
+            $sources[$mid][] = $id;
+        }
+    }
+    return $sources;
+}
+
+// Planet type name without the "Planet (...)" wrapper.
+function planet_type_name($typeName)
+{
+    return preg_replace('/^Planet \((.*)\)$/', '$1', $typeName);
+}
+
+// A solar system by ID (all digits) or exact name, with its constellation,
+// region and star. Returns an object, or false if there's no such system.
+function pi_lookup_system($dbh, $key)
+{
+    $sql = "select ms.solarSystemID, ms.solarSystemName, ms.security, c.constellationName, r.regionName, st.typeName star
+            from mapSolarSystems ms
+            join mapConstellations c on (c.constellationID=ms.constellationID)
+            join mapRegions r on (r.regionID=ms.regionID)
+            left join mapDenormalize sd on (sd.solarSystemID=ms.solarSystemID and sd.groupID=6)
+            left join invTypes st on (st.typeID=sd.typeID)
+            where ".(ctype_digit((string)$key) ? 'ms.solarSystemID=?' : 'ms.solarSystemName=?');
+    $stmt = $dbh->prepare($sql);
+    $stmt->execute(array($key));
+    return $stmt->fetchObject();
+}
+
+// Systems near $originid that contain every planet type in $wanted and a
+// source for every raw material in $needs (typeID => true).
+// Returns array('results'=>rows, 'excluded'=>rows, 'error'=>string). Each
+// row has solarSystemID, solarSystemName, security, regionName, jumps,
+// planets, stations and a t<planetTypeID> count per PI planet type.
+// 'excluded' holds systems that matched but don't allow PI.
+function pi_find_systems($dbh, $ptypes, $originid, $wanted, $needs, $maxjumps, $highroute, $secfilter, $station, $limit)
+{
+    global $pi_restricted_systems;
+    $sources = pi_sources($ptypes);
+
+    $counts = array();
+    foreach ($ptypes as $id => $t) {
+        $counts[] = "sum(d.typeID=".(int)$id.") t".(int)$id;
+    }
+    $having = array();
+    foreach ($wanted as $id) {
+        $having[] = "t".(int)$id.">0";
+    }
+    // Each raw material needs at least one planet of a type that yields it.
+    foreach ($needs as $mid => $x) {
+        $having[] = '(t'.implode('+t', $sources[$mid]).')>0';
+    }
+    $where = '';
+    if ($secfilter == 'high') {
+        $where .= ' and ms.security>=0.45';
+    } elseif ($secfilter == 'low') {
+        $where .= ' and ms.security>0 and ms.security<0.45';
+    } elseif ($secfilter == 'null') {
+        $where .= ' and ms.security<=0';
+    }
+    if ($station) {
+        $where .= ' and exists (select 1 from staStations s where s.solarSystemID=ms.solarSystemID)';
+    }
+
+    // mapRoutes stores the origin itself as pathLength 1.
+    $restricted = implode(',', $pi_restricted_systems);
+    $sql = "select ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName,
+                   mr.pathLength-1 jumps, count(*) planets, ".implode(', ', $counts).",
+                   (select count(*) from staStations s where s.solarSystemID=ms.solarSystemID) stations
+            from evesupport.mapRoutes mr
+            join mapSolarSystems ms on (ms.solarSystemID=mr.toSolarSystemID)
+            join mapRegions r on (r.regionID=ms.regionID)
+            join mapDenormalize d on (d.solarSystemID=ms.solarSystemID and d.groupID=7)
+            where mr.fromSolarSystemID=:origin and mr.highSecOnly=:high and mr.pathLength<=:maxpath $where
+            and ms.solarSystemID %s ($restricted)
+            group by ms.solarSystemID, ms.solarSystemName, ms.security, r.regionName, mr.pathLength
+            ".($having ? 'having '.implode(' and ', $having) : '')."
+            order by jumps, ms.solarSystemName
+            %s";
+    $run = function($sql) use ($dbh, $originid, $highroute, $maxjumps) {
+        $stmt = $dbh->prepare($sql);
+        $stmt->bindValue(':origin', (int)$originid, PDO::PARAM_INT);
+        $stmt->bindValue(':high', $highroute ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':maxpath', (int)$maxjumps + 1, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_OBJ);
+    };
+    $results = $run(sprintf($sql, 'not in', "limit ".(int)$limit));
+    // Restricted systems that would otherwise have matched, so we can say what was left out.
+    $excluded = $run(sprintf($sql, 'in', ''));
+
+    $error = '';
+    if (!$results) {
+        $check = $dbh->prepare('select 1 from evesupport.mapRoutes where fromSolarSystemID=? and highSecOnly=? limit 1');
+        $check->execute(array($originid, $highroute ? 1 : 0));
+        if (!$check->fetch()) {
+            $stmt = $dbh->prepare('select solarSystemName from mapSolarSystems where solarSystemID=?');
+            $stmt->execute(array($originid));
+            $origin = $stmt->fetchColumn();
+            $error = $highroute
+                ? "There's no high-sec-only route data from $origin. It may not be in high-sec; try \"Through any security\"."
+                : "There's no route data for $origin.";
+        }
+    }
+    return array('results' => $results, 'excluded' => $excluded, 'error' => $error);
+}
+
+// Planets in a system, keyed by itemID, in orbit order. Each has itemID,
+// typeID, itemName, celestialIndex, x, y, z, radius, typeName, temperature,
+// plus counts of the moons, belts and stations around it.
+function pi_system_planets($dbh, $systemid)
+{
+    $sql = "select d.itemID, d.typeID, d.itemName, d.celestialIndex, d.x, d.y, d.z, d.radius, t.typeName, cs.temperature
+            from mapDenormalize d
+            join invTypes t on (t.typeID=d.typeID)
+            left join mapCelestialStatistics cs on (cs.celestialID=d.itemID)
+            where d.solarSystemID=? and d.groupID=7
+            order by d.celestialIndex";
+    $stmt = $dbh->prepare($sql);
+    $stmt->execute(array($systemid));
+    $planets = array();
+    foreach ($stmt->fetchAll(PDO::FETCH_OBJ) as $p) {
+        $p->moons = 0;
+        $p->belts = 0;
+        $p->stations = 0;
+        $planets[(int)$p->itemID] = $p;
+    }
+
+    // Moons and belts orbit a planet; stations orbit either a planet or one of its moons.
+    $stmt = $dbh->prepare('select itemID, groupID, orbitID from mapDenormalize where solarSystemID=? and groupID in (8,9,15)');
+    $stmt->execute(array($systemid));
+    $moonplanet = array();
+    $stations = array();
+    foreach ($stmt->fetchAll(PDO::FETCH_OBJ) as $o) {
+        if ($o->groupID == 15) {
+            $stations[] = (int)$o->orbitID;
+        } elseif (isset($planets[(int)$o->orbitID])) {
+            if ($o->groupID == 8) {
+                $planets[(int)$o->orbitID]->moons++;
+                $moonplanet[(int)$o->itemID] = (int)$o->orbitID;
+            } else {
+                $planets[(int)$o->orbitID]->belts++;
+            }
+        }
+    }
+    foreach ($stations as $orbit) {
+        if (isset($planets[$orbit])) {
+            $planets[$orbit]->stations++;
+        } elseif (isset($moonplanet[$orbit])) {
+            $planets[$moonplanet[$orbit]]->stations++;
+        }
+    }
+    return $planets;
+}
+
+// Orbit radius of a planet row in AU.
+function planet_orbit_au($p)
+{
+    return sqrt((float)$p->x * (float)$p->x + (float)$p->y * (float)$p->y + (float)$p->z * (float)$p->z) / AU_METRES;
+}
+
 function page_head($title)
 {
 ?><!DOCTYPE html>

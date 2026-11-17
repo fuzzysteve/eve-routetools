@@ -20,16 +20,7 @@ foreach ($picked as $id) {
 }
 $key = isset($_GET['system']) ? trim($_GET['system']) : '';
 
-$sql = "select ms.solarSystemID, ms.solarSystemName, ms.security, c.constellationName, r.regionName, st.typeName star
-        from mapSolarSystems ms
-        join mapConstellations c on (c.constellationID=ms.constellationID)
-        join mapRegions r on (r.regionID=ms.regionID)
-        left join mapDenormalize sd on (sd.solarSystemID=ms.solarSystemID and sd.groupID=6)
-        left join invTypes st on (st.typeID=sd.typeID)
-        where ".(ctype_digit($key) ? 'ms.solarSystemID=?' : 'ms.solarSystemName=?');
-$stmt = $dbh->prepare($sql);
-$stmt->execute(array($key));
-$system = $stmt->fetchObject();
+$system = pi_lookup_system($dbh, $key);
 
 if (!$system) {
     page_head('Planet Finder');
@@ -39,46 +30,7 @@ if (!$system) {
 }
 $systemid = (int)$system->solarSystemID;
 
-$sql = "select d.itemID, d.typeID, d.itemName, d.celestialIndex, d.x, d.y, d.z, d.radius, t.typeName, cs.temperature
-        from mapDenormalize d
-        join invTypes t on (t.typeID=d.typeID)
-        left join mapCelestialStatistics cs on (cs.celestialID=d.itemID)
-        where d.solarSystemID=? and d.groupID=7
-        order by d.celestialIndex";
-$stmt = $dbh->prepare($sql);
-$stmt->execute(array($systemid));
-$planets = array();
-foreach ($stmt->fetchAll(PDO::FETCH_OBJ) as $p) {
-    $p->moons = 0;
-    $p->belts = 0;
-    $p->stations = 0;
-    $planets[(int)$p->itemID] = $p;
-}
-
-// Moons and belts orbit a planet; stations orbit either a planet or one of its moons.
-$stmt = $dbh->prepare('select itemID, groupID, orbitID from mapDenormalize where solarSystemID=? and groupID in (8,9,15)');
-$stmt->execute(array($systemid));
-$moonplanet = array();
-$stations = array();
-foreach ($stmt->fetchAll(PDO::FETCH_OBJ) as $o) {
-    if ($o->groupID == 15) {
-        $stations[] = (int)$o->orbitID;
-    } elseif (isset($planets[(int)$o->orbitID])) {
-        if ($o->groupID == 8) {
-            $planets[(int)$o->orbitID]->moons++;
-            $moonplanet[(int)$o->itemID] = (int)$o->orbitID;
-        } else {
-            $planets[(int)$o->orbitID]->belts++;
-        }
-    }
-}
-foreach ($stations as $orbit) {
-    if (isset($planets[$orbit])) {
-        $planets[$orbit]->stations++;
-    } elseif (isset($moonplanet[$orbit])) {
-        $planets[$moonplanet[$orbit]]->stations++;
-    }
-}
+$planets = pi_system_planets($dbh, $systemid);
 
 $summary = array();
 foreach ($planets as $p) {
@@ -132,7 +84,7 @@ foreach ($summary as $name => $c) {
 </thead>
 <tbody>
 <?php foreach ($planets as $p) {
-    $au = sqrt((float)$p->x * (float)$p->x + (float)$p->y * (float)$p->y + (float)$p->z * (float)$p->z) / AU_METRES;
+    $au = planet_orbit_au($p);
 ?>
 <tr>
 <td><?php echo h($p->itemName); ?></td>
